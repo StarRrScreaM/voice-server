@@ -26,6 +26,7 @@
       display: flex;
       flex-direction: column;
       padding: 20px;
+      overflow-y: auto;
     }
 
     .logo {
@@ -43,16 +44,6 @@
       font-size: 12px;
       text-transform: uppercase;
       color: #8e9297;
-      margin-bottom: 10px;
-    }
-
-    .room-input {
-      width: 100%;
-      padding: 10px;
-      background: #202225;
-      border: none;
-      border-radius: 4px;
-      color: #fff;
       margin-bottom: 10px;
     }
 
@@ -96,23 +87,66 @@
       background: #c03537;
     }
 
+    .mic-test {
+      margin-bottom: 20px;
+      padding: 15px;
+      background: #202225;
+      border-radius: 4px;
+    }
+
+    .mic-test h4 {
+      font-size: 12px;
+      color: #8e9297;
+      margin-bottom: 10px;
+    }
+
+    .visualizer {
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+      gap: 3px;
+      height: 60px;
+      margin-bottom: 10px;
+    }
+
+    .bar {
+      width: 4px;
+      background: #5865f2;
+      border-radius: 2px;
+      transition: height 0.1s ease;
+      min-height: 2px;
+    }
+
+    .mic-level {
+      font-size: 11px;
+      color: #8e9297;
+      text-align: center;
+    }
+
     .users-list {
       margin-top: 20px;
     }
 
+    .users-list h3 {
+      font-size: 12px;
+      text-transform: uppercase;
+      color: #8e9297;
+      margin-bottom: 10px;
+    }
+
     .user-item {
-      padding: 8px;
+      padding: 10px;
       background: #202225;
       border-radius: 4px;
-      margin-bottom: 5px;
+      margin-bottom: 8px;
       display: flex;
       align-items: center;
       gap: 10px;
     }
 
     .user-avatar {
-      width: 32px;
-      height: 32px;
+      width: 40px;
+      height: 40px;
       border-radius: 50%;
       background: #5865f2;
       display: flex;
@@ -120,12 +154,47 @@
       justify-content: center;
       font-weight: bold;
       color: #fff;
+      flex-shrink: 0;
+    }
+
+    .user-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .user-name {
+      font-weight: 600;
+      color: #fff;
+      margin-bottom: 4px;
+      font-size: 14px;
+    }
+    
+    .user-status {
+      font-size: 11px;
+      color: #8e9297;
+      margin-top: 2px;
+    }
+
+    .user-visualizer {
+      display: flex;
+      align-items: flex-end;
+      gap: 2px;
+      height: 20px;
+    }
+
+    .user-bar {
+      width: 3px;
+      background: #43b581;
+      border-radius: 1px;
+      transition: height 0.1s ease;
+      min-height: 1px;
     }
 
     .main-content {
       flex: 1;
       display: flex;
       flex-direction: column;
+      min-width: 0;
     }
 
     .chat-area {
@@ -162,6 +231,7 @@
 
     .message-content {
       flex: 1;
+      min-width: 0;
     }
 
     .message-header {
@@ -242,9 +312,10 @@
       padding: 15px;
       background: #2f3136;
       display: flex;
-      gap: 10px;
+      gap: 15px;
       align-items: center;
       justify-content: center;
+      flex-wrap: wrap;
     }
 
     .mic-btn {
@@ -304,6 +375,17 @@
       transform: translateX(20px);
     }
 
+    @media (max-width: 768px) {
+      body {
+        flex-direction: column;
+      }
+
+      .sidebar {
+        width: 100%;
+        max-height: 200px;
+      }
+    }
+
     ::-webkit-scrollbar {
       width: 8px;
     }
@@ -327,11 +409,16 @@
     <div class="logo">🎤 Voice Chat</div>
     
     <div class="room-section">
-      <h3>Комната</h3>
-      <input type="text" id="roomInput" class="room-input" placeholder="ID комнаты" value="room1">
+      <h3>Подключение</h3>
       <input type="text" id="nameInput" class="name-input" placeholder="Ваше имя" value="">
-      <button id="joinBtn" class="btn">Присоединиться</button>
-      <button id="leaveBtn" class="btn btn-danger" disabled>Покинуть</button>
+      <button id="joinBtn" class="btn">Войти</button>
+      <button id="leaveBtn" class="btn btn-danger" disabled>Выйти</button>
+    </div>
+
+    <div class="mic-test" id="micTest" style="display: none;">
+      <h4>Тест микрофона</h4>
+      <div class="visualizer" id="micVisualizer"></div>
+      <div class="mic-level" id="micLevel">Уровень: 0%</div>
     </div>
 
     <div class="users-list">
@@ -364,19 +451,27 @@
   <script>
     const socket = io('https://voice-server-w83t.onrender.com');
     
-    let localStream = null;
-    let originalStream = null; // Оригинальный поток для переподключения
+    const ROOM_ID = 'main'; // Одна общая комната
+    
+    let originalStream = null;
     let peerConnections = {};
     let audioContext = null;
     let sourceNode = null;
     let destinationNode = null;
+    let analyserNode = null;
     let noiseSuppressionEnabled = false;
     let isMuted = false;
     let currentRoom = null;
     let userName = null;
     let remoteAudios = {};
+    let remoteStreams = {}; // Храним потоки для визуализации
+    let remoteAnalysers = {}; // Анализаторы для удаленных пользователей
+    let visualizers = {};
+    let micVisualizerBars = [];
+    let micAnalyser = null;
+    let micVisualizerInterval = null;
+    let processedAnswers = new Set(); // Отслеживаем обработанные answers
 
-    const roomInput = document.getElementById('roomInput');
     const nameInput = document.getElementById('nameInput');
     const joinBtn = document.getElementById('joinBtn');
     const leaveBtn = document.getElementById('leaveBtn');
@@ -387,15 +482,122 @@
     const sendBtn = document.getElementById('sendBtn');
     const micBtn = document.getElementById('micBtn');
     const noiseSuppressionToggle = document.getElementById('noiseSuppressionToggle');
+    const micTest = document.getElementById('micTest');
+    const micVisualizer = document.getElementById('micVisualizer');
+    const micLevel = document.getElementById('micLevel');
+
+    // Создание визуализатора для микрофона
+    function createMicVisualizer() {
+      micVisualizer.innerHTML = '';
+      micVisualizerBars = [];
+      for (let i = 0; i < 20; i++) {
+        const bar = document.createElement('div');
+        bar.className = 'bar';
+        bar.style.height = '2px';
+        micVisualizer.appendChild(bar);
+        micVisualizerBars.push(bar);
+      }
+    }
+
+    // Обновление визуализатора микрофона
+    function updateMicVisualizer() {
+      if (!micAnalyser || !originalStream) return;
+
+      const dataArray = new Uint8Array(micAnalyser.frequencyBinCount);
+      micAnalyser.getByteFrequencyData(dataArray);
+      
+      const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
+      const level = Math.round((average / 255) * 100);
+      
+      micLevel.textContent = `Уровень: ${level}%`;
+      
+      // Обновляем бары
+      const barCount = micVisualizerBars.length;
+      const step = Math.floor(dataArray.length / barCount);
+      
+      micVisualizerBars.forEach((bar, i) => {
+        const index = i * step;
+        const value = dataArray[index] || 0;
+        const height = Math.max(2, (value / 255) * 60);
+        bar.style.height = `${height}px`;
+        bar.style.background = height > 40 ? '#ed4245' : height > 20 ? '#faa61a' : '#43b581';
+      });
+    }
+
+    // Создание визуализатора для пользователя
+    function createUserVisualizer(userId) {
+      const visualizer = document.createElement('div');
+      visualizer.className = 'user-visualizer';
+      visualizer.id = `visualizer-${userId}`;
+      
+      for (let i = 0; i < 10; i++) {
+        const bar = document.createElement('div');
+        bar.className = 'user-bar';
+        bar.style.height = '1px';
+        visualizer.appendChild(bar);
+      }
+      
+      visualizers[userId] = visualizer;
+      return visualizer;
+    }
+
+    // Инициализация анализатора для удаленного пользователя
+    function initRemoteAnalyser(userId, stream) {
+      if (remoteAnalysers[userId]) return;
+      
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const source = ctx.createMediaStreamSource(stream);
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 256;
+        source.connect(analyser);
+        
+        // Подключаем к destination чтобы звук воспроизводился
+        analyser.connect(ctx.destination);
+        
+        remoteAnalysers[userId] = analyser;
+        remoteStreams[userId] = stream;
+      } catch (e) {
+        console.warn('Не удалось создать анализатор для', userId, e);
+      }
+    }
+
+    // Обновление визуализатора пользователя
+    function updateUserVisualizer(userId) {
+      if (!visualizers[userId]) return;
+      
+      const analyser = remoteAnalysers[userId];
+      if (!analyser) return;
+
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      analyser.getByteFrequencyData(dataArray);
+      
+      const bars = visualizers[userId].querySelectorAll('.user-bar');
+      const barCount = bars.length;
+      const step = Math.floor(dataArray.length / barCount);
+      
+      bars.forEach((bar, i) => {
+        const index = i * step;
+        const value = dataArray[index] || 0;
+        const height = Math.max(1, (value / 255) * 20);
+        bar.style.height = `${height}px`;
+        bar.style.background = height > 15 ? '#43b581' : height > 8 ? '#faa61a' : '#72767d';
+      });
+    }
 
     // Инициализация Web Audio API для шумоподавления
     function initAudioContext(stream) {
-      if (audioContext) {
+      if (audioContext && audioContext.state !== 'closed') {
         audioContext.close();
       }
       
       audioContext = new (window.AudioContext || window.webkitAudioContext)();
       sourceNode = audioContext.createMediaStreamSource(stream);
+      
+      // Создаём анализатор для визуализации
+      micAnalyser = audioContext.createAnalyser();
+      micAnalyser.fftSize = 256;
+      sourceNode.connect(micAnalyser);
       
       // Создаём цепочку для шумоподавления
       const compressor = audioContext.createDynamicsCompressor();
@@ -405,21 +607,17 @@
       compressor.attack.value = 0;
       compressor.release.value = 0.25;
 
-      // High-pass filter для удаления низкочастотного шума
       const highPass = audioContext.createBiquadFilter();
       highPass.type = 'highpass';
       highPass.frequency.value = 80;
 
-      // Low-pass filter для удаления высокочастотного шума
       const lowPass = audioContext.createBiquadFilter();
       lowPass.type = 'lowpass';
       lowPass.frequency.value = 8000;
 
-      // Gain node для контроля громкости
       const gainNode = audioContext.createGain();
       gainNode.gain.value = 1.0;
 
-      // Подключаем цепочку
       sourceNode.connect(highPass);
       highPass.connect(lowPass);
       lowPass.connect(compressor);
@@ -431,59 +629,6 @@
       return destinationNode.stream;
     }
 
-    function applyNoiseSuppression(stream) {
-      if (!noiseSuppressionEnabled) {
-        return stream;
-      }
-      
-      if (!audioContext || audioContext.state === 'closed') {
-        const processedStream = initAudioContext(stream);
-        return processedStream;
-      }
-      
-      return destinationNode.stream;
-    }
-
-    noiseSuppressionToggle.addEventListener('click', () => {
-      noiseSuppressionEnabled = !noiseSuppressionEnabled;
-      noiseSuppressionToggle.classList.toggle('active', noiseSuppressionEnabled);
-      
-      if (originalStream) {
-        // Останавливаем старые треки
-        if (audioContext && audioContext.state !== 'closed') {
-          audioContext.close();
-        }
-        originalStream.getAudioTracks().forEach(track => track.stop());
-        
-        navigator.mediaDevices.getUserMedia({ 
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true
-          }
-        })
-          .then(stream => {
-            originalStream = stream;
-            
-            if (noiseSuppressionEnabled) {
-              initAudioContext(originalStream);
-            }
-            
-            // Обновляем треки во всех peer connections
-            const streamToUse = getStreamForWebRTC();
-            if (streamToUse) {
-              Object.values(peerConnections).forEach(pc => {
-                const sender = pc.getSenders().find(s => s.track && s.track.kind === 'audio');
-                if (sender && streamToUse.getAudioTracks()[0]) {
-                  sender.replaceTrack(streamToUse.getAudioTracks()[0]);
-                }
-              });
-            }
-          })
-          .catch(err => console.error('Ошибка при переподключении микрофона:', err));
-      }
-    });
-
     function getStreamForWebRTC() {
       if (noiseSuppressionEnabled && destinationNode) {
         return destinationNode.stream;
@@ -492,53 +637,203 @@
     }
 
     async function createPeerConnection(userId) {
+      // Закрываем существующее соединение если есть
+      if (peerConnections[userId]) {
+        peerConnections[userId].close();
+      }
+
       const pc = new RTCPeerConnection({
         iceServers: [
+          // STUN серверы для определения публичного IP
           { urls: 'stun:stun.l.google.com:19302' },
-          { urls: 'stun:stun1.l.google.com:19302' }
-        ]
+          { urls: 'stun:stun1.l.google.com:19302' },
+          // TURN серверы для ретрансляции (критично для работы через NAT/файрвол)
+          { 
+            urls: 'turn:openrelay.metered.ca:80',
+            username: 'openrelayproject',
+            credential: 'openrelayproject'
+          },
+          {
+            urls: 'turn:openrelay.metered.ca:443',
+            username: 'openrelayproject',
+            credential: 'openrelayproject'
+          },
+          {
+            urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+            username: 'openrelayproject',
+            credential: 'openrelayproject'
+          }
+        ],
+        iceCandidatePoolSize: 0
       });
 
       // Добавляем локальный поток
       const streamToAdd = getStreamForWebRTC();
-      if (streamToAdd) {
-        streamToAdd.getTracks().forEach(track => {
-          pc.addTrack(track, streamToAdd);
+      if (streamToAdd && streamToAdd.getAudioTracks().length > 0) {
+        streamToAdd.getAudioTracks().forEach(track => {
+          if (track.readyState === 'live') {
+            console.log(`Adding local track to ${userId}:`, track.id, track.enabled, track.kind);
+            pc.addTrack(track, streamToAdd);
+          } else {
+            console.warn(`Track not ready for ${userId}:`, track.readyState);
+          }
         });
+      } else {
+        console.error(`No stream or tracks available for ${userId}`);
       }
+      
+      // Проверяем, что треки добавлены
+      pc.getSenders().forEach(sender => {
+        if (sender.track) {
+          console.log(`Sender track for ${userId}:`, sender.track.kind, sender.track.enabled);
+        }
+      });
 
       // Обработка входящих треков
       pc.ontrack = (event) => {
+        console.log('Received track from', userId, event);
+        console.log('Track kind:', event.track.kind, 'Track id:', event.track.id);
         const [remoteStream] = event.streams;
-        if (!remoteAudios[userId]) {
-          const audio = new Audio();
-          audio.srcObject = remoteStream;
-          audio.autoplay = true;
-          audio.volume = 1.0;
-          remoteAudios[userId] = audio;
-        } else {
-          remoteAudios[userId].srcObject = remoteStream;
+        if (remoteStream && remoteStream.getAudioTracks().length > 0) {
+          console.log(`Audio track received from ${userId}, enabled:`, remoteStream.getAudioTracks()[0].enabled);
+          if (!remoteAudios[userId]) {
+            const audio = new Audio();
+            audio.srcObject = remoteStream;
+            audio.autoplay = true;
+            audio.volume = 1.0;
+            audio.setAttribute('playsinline', 'true'); // Для мобильных устройств
+            
+            // Обработчики для отладки
+            audio.onloadedmetadata = () => {
+              console.log(`Audio metadata loaded for ${userId}`);
+            };
+            
+            audio.onplay = () => {
+              console.log(`Audio started playing for ${userId}`);
+            };
+            
+            audio.onerror = (e) => {
+              console.error(`Audio error for ${userId}:`, e);
+            };
+            
+            // Принудительно запускаем воспроизведение
+            audio.play().catch(err => {
+              console.error(`Error playing audio for ${userId}:`, err);
+            });
+            
+            remoteAudios[userId] = audio;
+            
+            // Инициализируем анализатор для визуализации
+            initRemoteAnalyser(userId, remoteStream);
+            
+            // Обновляем статус - трек получен
+            const statusEl = document.getElementById(`status-${userId}`);
+            if (statusEl) {
+              statusEl.textContent = '✅ Аудио получено';
+              statusEl.style.color = '#43b581';
+            }
+            
+            // Убеждаемся, что визуализатор существует
+            const userItem = document.getElementById(`user-${userId}`);
+            if (userItem) {
+              const userInfo = userItem.querySelector('.user-info');
+              if (userInfo && !userInfo.querySelector('.user-visualizer')) {
+                // Создаем визуализатор если его еще нет
+                const visualizer = createUserVisualizer(userId);
+                userInfo.appendChild(visualizer);
+              }
+            }
+          } else {
+            remoteAudios[userId].srcObject = remoteStream;
+            // Обновляем анализатор если поток изменился
+            if (remoteStream !== remoteStreams[userId]) {
+              initRemoteAnalyser(userId, remoteStream);
+            }
+          }
         }
       };
 
       // Отправка ICE кандидатов
       pc.onicecandidate = (event) => {
         if (event.candidate) {
+          // Отправляем все кандидаты (включая relay для TURN)
+          console.log(`ICE candidate from ${userId}:`, event.candidate.type);
           socket.emit('ice-candidate', {
             candidate: event.candidate,
             to: userId,
             roomId: currentRoom
           });
+        } else {
+          console.log(`All ICE candidates gathered for ${userId}`);
+        }
+      };
+
+      pc.oniceconnectionstatechange = () => {
+        const state = pc.iceConnectionState;
+        console.log(`ICE connection state with ${userId}:`, state, 'Signaling:', pc.signalingState);
+        
+        // Обновляем статус в UI
+        const statusEl = document.getElementById(`status-${userId}`);
+        if (statusEl) {
+          const statusText = {
+            'new': '🔄 Подключение...',
+            'checking': '🔄 Проверка соединения...',
+            'connected': '✅ Подключено',
+            'completed': '✅ Подключено',
+            'failed': '❌ Ошибка соединения',
+            'disconnected': '⚠️ Отключено',
+            'closed': '❌ Закрыто'
+          }[state] || 'Ожидание...';
+          
+          statusEl.textContent = statusText;
+          statusEl.style.color = state === 'connected' || state === 'completed' ? '#43b581' : 
+                                 state === 'failed' || state === 'closed' ? '#ed4245' : '#8e9297';
+        }
+        
+        // Если соединение установлено успешно
+        if (state === 'connected' || state === 'completed') {
+          console.log(`✅ Successfully connected to ${userId}`);
+        }
+        
+        // Если соединение не удалось, пытаемся переподключиться
+        if (state === 'failed') {
+          console.warn(`ICE connection failed with ${userId}, attempting to reconnect...`);
+          setTimeout(() => {
+            if (peerConnections[userId] && peerConnections[userId].iceConnectionState === 'failed') {
+              console.log(`Attempting to reconnect to ${userId}...`);
+              establishConnection(userId);
+            }
+          }, 2000);
         }
       };
 
       pc.onconnectionstatechange = () => {
-        console.log(`Connection state with ${userId}:`, pc.connectionState);
-        if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+        const state = pc.connectionState;
+        console.log(`Connection state with ${userId}:`, state);
+        
+        if (state === 'failed' || state === 'disconnected') {
           if (remoteAudios[userId]) {
             remoteAudios[userId].pause();
             delete remoteAudios[userId];
           }
+        }
+        
+        // Автоматическое переподключение при ошибке
+        if (state === 'failed') {
+          console.warn(`Connection failed with ${userId}, attempting to reconnect...`);
+          setTimeout(() => {
+            if (peerConnections[userId] && peerConnections[userId].connectionState === 'failed') {
+              establishConnection(userId);
+            }
+          }, 3000);
+        }
+      };
+      
+      // Логирование ICE кандидатов для отладки (только серьезные ошибки)
+      pc.onicecandidateerror = (event) => {
+        // Игнорируем ошибки IPv6 и незначительные проблемы
+        if (event.errorCode && event.errorCode !== 701 && event.errorCode !== 702) {
+          console.warn(`ICE candidate error with ${userId}:`, event.errorCode, event.url);
         }
       };
 
@@ -546,68 +841,92 @@
     }
 
     async function establishConnection(userId) {
-      if (peerConnections[userId]) {
+      if (peerConnections[userId] && peerConnections[userId].connectionState !== 'closed') {
+        return;
+      }
+
+      if (!originalStream) {
+        console.error('No local stream available');
         return;
       }
 
       const pc = await createPeerConnection(userId);
       peerConnections[userId] = pc;
 
-      // Создаём offer
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-
-      socket.emit('offer', {
-        offer: pc.localDescription,
-        to: userId,
-        roomId: currentRoom
-      });
+      try {
+        // Создаём offer с правильными настройками
+        const offer = await pc.createOffer({
+          offerToReceiveAudio: true,
+          offerToReceiveVideo: false
+        });
+        
+        // Устанавливаем кодек предпочтения (Opus для лучшего качества)
+        await pc.setLocalDescription(offer);
+        
+        console.log(`Offer created for ${userId}:`, offer.type);
+        
+        socket.emit('offer', {
+          offer: pc.localDescription,
+          to: userId,
+          roomId: currentRoom
+        });
+      } catch (err) {
+        console.error('Error creating offer:', err);
+        status.textContent = `Ошибка соединения с ${userId}`;
+        status.className = 'status error';
+      }
     }
 
     joinBtn.addEventListener('click', async () => {
-      const roomId = roomInput.value.trim();
       const name = nameInput.value.trim() || `User-${Math.random().toString(36).substr(2, 6)}`;
       
-      if (!roomId) {
-        alert('Введите ID комнаты');
-        return;
-      }
-
       try {
         // Запрашиваем доступ к микрофону
-        localStream = await navigator.mediaDevices.getUserMedia({ 
+        const stream = await navigator.mediaDevices.getUserMedia({ 
           audio: {
             echoCancellation: true,
             noiseSuppression: true,
-            autoGainControl: true
+            autoGainControl: true,
+            sampleRate: 48000
           }
         });
 
-        originalStream = localStream;
+        originalStream = stream;
+        
+        // Инициализируем аудио контекст для визуализации
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        sourceNode = audioContext.createMediaStreamSource(originalStream);
+        micAnalyser = audioContext.createAnalyser();
+        micAnalyser.fftSize = 256;
+        sourceNode.connect(micAnalyser);
         
         // Инициализируем аудио контекст если шумоподавление включено
         if (noiseSuppressionEnabled) {
           initAudioContext(originalStream);
         }
 
-        currentRoom = roomId;
+        currentRoom = ROOM_ID;
         userName = name;
 
-        socket.emit('join-room', { roomId, name });
+        socket.emit('join-room', { roomId: ROOM_ID, name });
+        
+        // Создаем визуализатор микрофона
+        createMicVisualizer();
+        micTest.style.display = 'block';
+        micVisualizerInterval = setInterval(updateMicVisualizer, 100);
         
         joinBtn.disabled = true;
         leaveBtn.disabled = false;
         micBtn.disabled = false;
         messageInput.disabled = false;
         sendBtn.disabled = false;
-        roomInput.disabled = true;
         nameInput.disabled = true;
         
         status.textContent = 'Подключено';
         status.className = 'status connected';
       } catch (err) {
         console.error('Ошибка доступа к микрофону:', err);
-        alert('Не удалось получить доступ к микрофону');
+        alert('Не удалось получить доступ к микрофону. Проверьте разрешения браузера.');
       }
     });
 
@@ -621,35 +940,44 @@
         audio.srcObject = null;
       });
       remoteAudios = {};
+      remoteAnalysers = {};
+      remoteStreams = {};
 
       if (originalStream) {
         originalStream.getTracks().forEach(track => track.stop());
         originalStream = null;
-        localStream = null;
       }
 
-      if (audioContext) {
+      if (audioContext && audioContext.state !== 'closed') {
         audioContext.close();
         audioContext = null;
       }
+
+      if (micVisualizerInterval) {
+        clearInterval(micVisualizerInterval);
+        micVisualizerInterval = null;
+      }
+
+      processedAnswers.clear(); // Очищаем обработанные answers
 
       socket.emit('leave-room', { roomId: currentRoom });
       
       currentRoom = null;
       userName = null;
+      visualizers = {};
       
       joinBtn.disabled = false;
       leaveBtn.disabled = true;
       micBtn.disabled = true;
       messageInput.disabled = true;
       sendBtn.disabled = true;
-      roomInput.disabled = false;
       nameInput.disabled = false;
       
       status.textContent = 'Не подключено';
       status.className = 'status';
       usersList.innerHTML = '';
       messages.innerHTML = '';
+      micTest.style.display = 'none';
     });
 
     micBtn.addEventListener('click', () => {
@@ -662,6 +990,38 @@
       
       micBtn.textContent = isMuted ? '🔇 Микрофон выключен' : '🎤 Микрофон';
       micBtn.classList.toggle('muted', isMuted);
+    });
+
+    noiseSuppressionToggle.addEventListener('click', () => {
+      if (!originalStream) return;
+      
+      noiseSuppressionEnabled = !noiseSuppressionEnabled;
+      noiseSuppressionToggle.classList.toggle('active', noiseSuppressionEnabled);
+      
+      if (noiseSuppressionEnabled) {
+        initAudioContext(originalStream);
+        
+        // Обновляем треки во всех peer connections
+        const streamToUse = getStreamForWebRTC();
+        if (streamToUse) {
+          Object.entries(peerConnections).forEach(([userId, pc]) => {
+            const sender = pc.getSenders().find(s => s.track && s.track.kind === 'audio');
+            if (sender && streamToUse.getAudioTracks()[0]) {
+              sender.replaceTrack(streamToUse.getAudioTracks()[0]);
+            }
+          });
+        }
+      } else {
+        if (audioContext && destinationNode) {
+          // Переподключаем оригинальный поток
+          Object.entries(peerConnections).forEach(([userId, pc]) => {
+            const sender = pc.getSenders().find(s => s.track && s.track.kind === 'audio');
+            if (sender && originalStream.getAudioTracks()[0]) {
+              sender.replaceTrack(originalStream.getAudioTracks()[0]);
+            }
+          });
+        }
+      }
     });
 
     sendBtn.addEventListener('click', () => {
@@ -690,10 +1050,25 @@
       users.forEach(user => {
         const userItem = document.createElement('div');
         userItem.className = 'user-item';
+        userItem.id = `user-${user.id}`;
+        
+        // Создаем визуализатор сразу
+        const visualizer = createUserVisualizer(user.id);
+        
         userItem.innerHTML = `
           <div class="user-avatar">${user.name[0].toUpperCase()}</div>
-          <span>${user.name}</span>
+          <div class="user-info">
+            <div class="user-name">${user.name}</div>
+            <div class="user-status" id="status-${user.id}">Ожидание...</div>
+          </div>
         `;
+        
+        // Добавляем визуализатор
+        const userInfo = userItem.querySelector('.user-info');
+        if (userInfo) {
+          userInfo.appendChild(visualizer);
+        }
+        
         usersList.appendChild(userItem);
       });
     });
@@ -702,14 +1077,30 @@
       const userItem = document.createElement('div');
       userItem.className = 'user-item';
       userItem.id = `user-${userId}`;
+      
+      // Создаем визуализатор сразу
+      const visualizer = createUserVisualizer(userId);
+      
       userItem.innerHTML = `
         <div class="user-avatar">${name[0].toUpperCase()}</div>
-        <span>${name}</span>
+        <div class="user-info">
+          <div class="user-name">${name}</div>
+          <div class="user-status" id="status-${userId}">Ожидание...</div>
+        </div>
       `;
+      
+      // Добавляем визуализатор
+      const userInfo = userItem.querySelector('.user-info');
+      if (userInfo) {
+        userInfo.appendChild(visualizer);
+      }
+      
       usersList.appendChild(userItem);
       
       // Устанавливаем соединение с новым пользователем
-      establishConnection(userId);
+      if (originalStream) {
+        establishConnection(userId);
+      }
     });
 
     socket.on('user-left', ({ userId }) => {
@@ -727,38 +1118,121 @@
         remoteAudios[userId].pause();
         delete remoteAudios[userId];
       }
+      
+      if (remoteAnalysers[userId]) {
+        delete remoteAnalysers[userId];
+      }
+      
+      if (remoteStreams[userId]) {
+        delete remoteStreams[userId];
+      }
+      
+      if (visualizers[userId]) {
+        delete visualizers[userId];
+      }
     });
 
     socket.on('existing-user', ({ userId, name }) => {
-      establishConnection(userId);
+      if (originalStream) {
+        establishConnection(userId);
+      }
     });
 
     socket.on('offer', async ({ offer, from }) => {
+      if (!originalStream) {
+        console.error('No local stream to answer offer');
+        return;
+      }
+
+      // Проверяем, нет ли уже соединения
+      if (peerConnections[from] && peerConnections[from].signalingState !== 'closed') {
+        console.log(`Already have connection with ${from}, closing old one`);
+        peerConnections[from].close();
+      }
+
       const pc = await createPeerConnection(from);
       peerConnections[from] = pc;
       
-      await pc.setRemoteDescription(new RTCSessionDescription(offer));
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-      
-      socket.emit('answer', {
-        answer: pc.localDescription,
-        to: from,
-        roomId: currentRoom
-      });
+      try {
+        console.log(`Received offer from ${from}, setting remote description...`);
+        await pc.setRemoteDescription(new RTCSessionDescription(offer));
+        console.log(`Remote offer set, creating answer...`);
+        
+        const answer = await pc.createAnswer({
+          offerToReceiveAudio: true,
+          offerToReceiveVideo: false
+        });
+        await pc.setLocalDescription(answer);
+        
+        console.log(`Answer created for ${from}:`, answer.type, 'State:', pc.signalingState);
+        
+        socket.emit('answer', {
+          answer: pc.localDescription,
+          to: from,
+          roomId: currentRoom
+        });
+      } catch (err) {
+        console.error('Error handling offer:', err);
+        status.textContent = `Ошибка обработки запроса от ${from}`;
+        status.className = 'status error';
+      }
     });
 
     socket.on('answer', async ({ answer, from }) => {
       const pc = peerConnections[from];
-      if (pc) {
-        await pc.setRemoteDescription(new RTCSessionDescription(answer));
+      if (!pc) {
+        console.warn(`No peer connection found for ${from} when receiving answer`);
+        return;
+      }
+
+      // Проверяем, не обрабатывали ли мы уже этот answer
+      const answerId = `${from}-${answer.sdp.substring(0, 50)}`;
+      if (processedAnswers.has(answerId)) {
+        console.log(`Answer from ${from} already processed, skipping`);
+        return;
+      }
+
+      try {
+        // Проверяем состояние перед установкой
+        const currentState = pc.signalingState;
+        console.log(`Received answer from ${from}, current state:`, currentState);
+        
+        if (currentState === 'have-local-offer') {
+          console.log(`Setting remote answer from ${from}...`);
+          await pc.setRemoteDescription(new RTCSessionDescription(answer));
+          processedAnswers.add(answerId);
+          console.log(`✅ Remote answer set successfully, new state:`, pc.signalingState);
+        } else if (currentState === 'have-remote-answer' || currentState === 'stable') {
+          console.log(`Answer already processed for ${from}, state:`, currentState);
+        } else {
+          console.warn(`Cannot set remote answer, wrong state:`, currentState);
+        }
+      } catch (err) {
+        // Игнорируем ошибки если уже установлено
+        if (err.message && err.message.includes('stable')) {
+          console.log(`Answer already set for ${from} (stable state)`);
+        } else if (err.message && err.message.includes('have-remote-answer')) {
+          console.log(`Answer already set for ${from} (have-remote-answer state)`);
+        } else {
+          console.error('Error setting remote description:', err);
+        }
       }
     });
 
     socket.on('ice-candidate', async ({ candidate, from }) => {
       const pc = peerConnections[from];
       if (pc && candidate) {
-        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+        try {
+          console.log(`Adding ICE candidate from ${from}:`, candidate.type);
+          await pc.addIceCandidate(new RTCIceCandidate(candidate));
+        } catch (err) {
+          // Игнорируем ошибки дублирования кандидатов
+          if (err.message && !err.message.includes('duplicate')) {
+            console.error('Error adding ICE candidate:', err);
+          }
+        }
+      } else {
+        console.warn(`No peer connection for ${from} when adding ICE candidate`);
       }
     });
 
@@ -788,12 +1262,38 @@
 
     socket.on('connect', () => {
       console.log('Подключено к серверу');
+      if (status.className.includes('error')) {
+        status.textContent = 'Подключено';
+        status.className = 'status connected';
+      }
     });
 
     socket.on('disconnect', () => {
       status.textContent = 'Отключено от сервера';
       status.className = 'status error';
     });
+
+    // Обновление визуализаторов пользователей
+    setInterval(() => {
+      // Обновляем визуализаторы для всех пользователей с активными анализаторами
+      Object.keys(remoteAnalysers).forEach(userId => {
+        if (remoteAudios[userId] && !remoteAudios[userId].paused) {
+          updateUserVisualizer(userId);
+        }
+      });
+      
+      // Также обновляем визуализаторы, которые еще не имеют анализатора (показываем пустые бары)
+      Object.keys(visualizers).forEach(userId => {
+        if (!remoteAnalysers[userId] && visualizers[userId]) {
+          // Сбрасываем бары до минимума если нет активного потока
+          const bars = visualizers[userId].querySelectorAll('.user-bar');
+          bars.forEach(bar => {
+            bar.style.height = '1px';
+            bar.style.background = '#72767d';
+          });
+        }
+      });
+    }, 100);
   </script>
 </body>
 </html>
