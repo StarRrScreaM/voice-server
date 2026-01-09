@@ -384,9 +384,70 @@
 
       .sidebar {
         width: 100%;
-        max-height: 40vh;
+        height: var(--sidebar-height, 40vh);
+        max-height: 70vh;
+        min-height: 30vh;
         padding: 15px;
         overflow-y: auto;
+        transition: height 0.1s ease;
+      }
+
+      .sidebar-resizer {
+        width: 100%;
+        height: 8px;
+        background: #2f3136;
+        border-top: 1px solid #202225;
+        border-bottom: 1px solid #202225;
+        cursor: ns-resize;
+        touch-action: none;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #8e9297;
+        font-size: 12px;
+        transition: all 0.2s ease;
+        position: relative;
+      }
+
+      .sidebar-resizer::before {
+        content: '⋮⋮';
+        transform: rotate(90deg);
+        transition: all 0.2s ease;
+      }
+
+      .sidebar-resizer.reset-ready::before {
+        content: '↻';
+        transform: none;
+      }
+
+      .sidebar-resizer:hover {
+        background: #36393f;
+        color: #dcddde;
+      }
+
+      .sidebar-resizer:active,
+      .sidebar-resizer.active {
+        background: #5865f2;
+        color: #fff;
+      }
+
+      .sidebar-resizer::after {
+        content: '';
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        width: 40px;
+        height: 2px;
+        background: currentColor;
+        border-radius: 1px;
+        opacity: 0.5;
+      }
+
+      /* Добавляем возможность двойного клика для сброса к умолчанию */
+      .sidebar-resizer.reset-ready {
+        background: #ed4245;
+        color: #fff;
       }
 
       .logo {
@@ -560,12 +621,19 @@
     ::-webkit-scrollbar-thumb:hover {
       background: #1a1c1f;
     }
+
+    /* Скрываем разделитель на больших экранах */
+    @media (min-width: 769px) {
+      .sidebar-resizer {
+        display: none !important;
+      }
+    }
   </style>
 </head>
 <body>
   <div class="sidebar">
     <div class="logo">🎤 Voice Chat</div>
-    
+
     <div class="room-section">
       <h3>Подключение</h3>
       <input type="text" id="nameInput" class="name-input" placeholder="Ваше имя" value="">
@@ -585,6 +653,9 @@
     </div>
   </div>
 
+  <!-- Разделитель для мобильной версии -->
+  <div class="sidebar-resizer" id="sidebarResizer" style="display: none;"></div>
+
   <div class="main-content">
     <div class="status" id="status">Не подключено</div>
     
@@ -598,7 +669,6 @@
 
     <div class="voice-controls">
       <button id="micBtn" class="mic-btn" disabled>🎤 Микрофон</button>
-      <button id="enableAudioBtn" class="btn" style="background: #5865f2; margin-right: 10px;">🔊 Включить звук</button>
       <div class="noise-suppression-toggle">
         <span>Шумоподавление</span>
         <div class="toggle-switch" id="noiseSuppressionToggle"></div>
@@ -640,9 +710,161 @@
       }
     }
 
+    // Функции для работы с высотой сайдбара
+    function loadSidebarHeight() {
+      try {
+        const savedHeight = localStorage.getItem('voiceChatSidebarHeight');
+        if (savedHeight) {
+          document.documentElement.style.setProperty('--sidebar-height', savedHeight);
+          debugLog('Loaded sidebar height:', savedHeight);
+        }
+      } catch (e) {
+        console.warn('Could not load sidebar height:', e);
+      }
+    }
+
+    function saveSidebarHeight(height) {
+      try {
+        localStorage.setItem('voiceChatSidebarHeight', height);
+        debugLog('Saved sidebar height:', height);
+      } catch (e) {
+        console.warn('Could not save sidebar height:', e);
+      }
+    }
+
+    // Функция для определения мобильной версии
+    function isMobile() {
+      return window.innerWidth <= 768;
+    }
+
+    // Логика изменения размера сайдбара
+    function initSidebarResizer() {
+      const resizer = document.getElementById('sidebarResizer');
+      const sidebar = document.querySelector('.sidebar');
+
+      if (!resizer || !sidebar) return;
+
+      let isResizing = false;
+      let startY = 0;
+      let startHeight = 0;
+
+      function startResize(e) {
+        isResizing = true;
+        startY = e.touches ? e.touches[0].clientY : e.clientY;
+        startHeight = sidebar.offsetHeight;
+        resizer.classList.add('active');
+        document.body.style.userSelect = 'none';
+        debugLog('Started resizing sidebar');
+      }
+
+      function resize(e) {
+        if (!isResizing) return;
+
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        const deltaY = clientY - startY;
+        const newHeight = Math.max(200, Math.min(500, startHeight + deltaY)); // Ограничения высоты
+
+        sidebar.style.height = `${newHeight}px`;
+        debugLog('Resizing sidebar to:', newHeight);
+      }
+
+      function stopResize() {
+        if (!isResizing) return;
+
+        isResizing = false;
+        resizer.classList.remove('active');
+        document.body.style.userSelect = '';
+
+        // Сохраняем новую высоту
+        const currentHeight = sidebar.offsetHeight;
+        const heightPercent = (currentHeight / window.innerHeight) * 100;
+        document.documentElement.style.setProperty('--sidebar-height', `${heightPercent}vh`);
+        saveSidebarHeight(`${heightPercent}vh`);
+
+        debugLog('Finished resizing sidebar to:', heightPercent + 'vh');
+      }
+
+      // Функция сброса высоты к значению по умолчанию
+      function resetSidebarHeight() {
+        const defaultHeight = '40vh';
+        document.documentElement.style.setProperty('--sidebar-height', defaultHeight);
+        sidebar.style.height = defaultHeight;
+        saveSidebarHeight(defaultHeight);
+        debugLog('Reset sidebar height to default:', defaultHeight);
+      }
+
+      // Двойной клик для сброса
+      let clickTimeout;
+      resizer.addEventListener('click', () => {
+        if (clickTimeout) {
+          clearTimeout(clickTimeout);
+          clickTimeout = null;
+          // Двойной клик - сбрасываем высоту
+          resetSidebarHeight();
+          resizer.classList.remove('reset-ready');
+        } else {
+          // Первый клик - показываем подсказку
+          clickTimeout = setTimeout(() => {
+            clickTimeout = null;
+            resizer.classList.remove('reset-ready');
+          }, 300);
+          resizer.classList.add('reset-ready');
+        }
+      });
+
+      // Обработчики для мыши
+      resizer.addEventListener('mousedown', (e) => {
+        // Если это не двойной клик, начинаем resize
+        if (!clickTimeout) {
+          startResize(e);
+        }
+      });
+      document.addEventListener('mousemove', resize);
+      document.addEventListener('mouseup', stopResize);
+
+      // Обработчики для touch
+      resizer.addEventListener('touchstart', (e) => {
+        // Предотвращаем конфликт с двойным кликом
+        if (e.touches.length === 1) {
+          startResize(e);
+        }
+      }, { passive: false });
+      document.addEventListener('touchmove', resize, { passive: false });
+      document.addEventListener('touchend', stopResize);
+    }
+
     // Инициализация при загрузке страницы
     document.addEventListener('DOMContentLoaded', () => {
       loadSavedUsername();
+      loadSidebarHeight();
+
+      // Показываем разделитель только на мобильных устройствах
+      if (isMobile()) {
+        const resizer = document.getElementById('sidebarResizer');
+        if (resizer) {
+          resizer.style.display = 'flex';
+        }
+        initSidebarResizer();
+      }
+
+      // Обновляем при изменении размера окна
+      window.addEventListener('resize', () => {
+        const resizer = document.getElementById('sidebarResizer');
+        if (resizer) {
+          resizer.style.display = isMobile() ? 'flex' : 'none';
+        }
+      });
+
+      // Обновляем при изменении ориентации (для мобильных устройств)
+      window.addEventListener('orientationchange', () => {
+        setTimeout(() => {
+          loadSidebarHeight(); // Перезагружаем сохраненную высоту
+          const resizer = document.getElementById('sidebarResizer');
+          if (resizer) {
+            resizer.style.display = isMobile() ? 'flex' : 'none';
+          }
+        }, 100);
+      });
     });
     
     const ROOM_ID = 'main'; // Одна общая комната
@@ -675,7 +897,6 @@
     const messageInput = document.getElementById('messageInput');
     const sendBtn = document.getElementById('sendBtn');
     const micBtn = document.getElementById('micBtn');
-    const enableAudioBtn = document.getElementById('enableAudioBtn');
     const noiseSuppressionToggle = document.getElementById('noiseSuppressionToggle');
     const micTest = document.getElementById('micTest');
     const micVisualizer = document.getElementById('micVisualizer');
@@ -822,44 +1043,42 @@
       micAnalyser.smoothingTimeConstant = 0.8;
       sourceNode.connect(micAnalyser);
       
-      // Создаём мягкую цепочку для улучшения качества (не агрессивное шумоподавление)
-      // Используем только легкую фильтрацию, так как браузер уже имеет встроенное шумоподавление
-      
-      // Легкий high-pass фильтр для удаления очень низких частот (гул, шум вентилятора)
+      // Используем простое и эффективное шумоподавление
+      // Основная логика: полагаемся на встроенное шумоподавление браузера + легкая постобработка
+      //
+      // Для профессионального шумоподавления рекомендуется Krisp.ai:
+      // 1. Установите расширение Krisp для браузера
+      // 2. Включите его в настройках микрофона
+      // 3. Оно обеспечит AI-based подавление шумов лучше любой веб-технологии
+
+      // Легкий high-pass фильтр для удаления очень низких частот (гул, инфразвук)
       const highPass = audioContext.createBiquadFilter();
       highPass.type = 'highpass';
-      highPass.frequency.value = 100; // Чуть выше, чтобы не резать голос
-      highPass.Q.value = 1; // Мягкий срез
+      highPass.frequency.value = 80; // Легкий фильтр, не режет голос
+      highPass.Q.value = 0.5; // Мягкий срез
 
-      // Легкий low-pass фильтр для удаления очень высоких частот
-      const lowPass = audioContext.createBiquadFilter();
-      lowPass.type = 'lowpass';
-      lowPass.frequency.value = 12000; // Выше, чтобы не резать голос
-      lowPass.Q.value = 1;
-
-      // Мягкий компрессор для выравнивания громкости (не агрессивный)
+      // Очень лёгкий компрессор для выравнивания громкости
       const compressor = audioContext.createDynamicsCompressor();
-      compressor.threshold.value = -30; // Выше порог
-      compressor.knee.value = 10; // Меньше колено
-      compressor.ratio.value = 4; // Меньше сжатие
-      compressor.attack.value = 0.003; // Быстрее атака
-      compressor.release.value = 0.1; // Быстрее освобождение
+      compressor.threshold.value = -20; // Высокий порог, только для пиков
+      compressor.knee.value = 20; // Мягкое колено
+      compressor.ratio.value = 3; // Легкое сжатие
+      compressor.attack.value = 0.01; // Плавная атака
+      compressor.release.value = 0.2; // Плавное восстановление
 
-      // Gain для контроля громкости (без усиления)
+      // Нормализация уровня (без усиления)
       const gainNode = audioContext.createGain();
-      gainNode.gain.value = 1.0; // Без усиления
+      gainNode.gain.value = 1.0; // Без изменений уровня
 
-      // Подключаем цепочку: source -> highPass -> lowPass -> compressor -> gain -> destination
+      // Простая цепочка: source -> highPass -> compressor -> gain -> destination
       sourceNode.connect(highPass);
-      highPass.connect(lowPass);
-      lowPass.connect(compressor);
+      highPass.connect(compressor);
       compressor.connect(gainNode);
       
       // Создаём destination для WebRTC
       destinationNode = audioContext.createMediaStreamDestination();
       gainNode.connect(destinationNode);
 
-      console.log('✅ Audio context initialized with soft noise suppression');
+      console.log('✅ Audio context initialized with browser noise suppression + light processing');
       return destinationNode.stream;
     }
 
@@ -1036,7 +1255,7 @@
             // Также пробуем при любом взаимодействии пользователя
             const enableAudioOnInteraction = () => {
               if (audio.paused || audio.readyState === 0) {
-                console.log(`🎵 User interaction detected, trying to play audio for ${userId}`);
+                debugLog(`User interaction detected, trying to play audio for ${userId}`);
                 playAudio();
               }
             };
@@ -1454,44 +1673,16 @@
       micBtn.classList.toggle('muted', isMuted);
     });
 
-    enableAudioBtn.addEventListener('click', () => {
-      console.log('🎵 Manually enabling all audio streams...');
-
-      // Пытаемся запустить все аудио потоки
-      Object.entries(remoteAudios).forEach(([userId, audio]) => {
-        if (audio && audio.paused) {
-          audio.play().then(() => {
-            console.log(`✅ Manually enabled audio for ${userId}`);
-            const statusEl = document.getElementById(`status-${userId}`);
-            if (statusEl) {
-              statusEl.textContent = '🎵 Слышно';
-              statusEl.style.color = '#43b581';
-            }
-          }).catch(err => {
-            console.error(`❌ Failed to manually enable audio for ${userId}:`, err);
-          });
-        }
-      });
-
-      // Меняем текст кнопки
-      enableAudioBtn.textContent = '✅ Звук включен';
-      enableAudioBtn.style.background = '#43b581';
-
-      // Скрываем кнопку через 3 секунды
-      setTimeout(() => {
-        enableAudioBtn.style.display = 'none';
-      }, 3000);
-    });
 
     noiseSuppressionToggle.addEventListener('click', () => {
       if (!originalStream) return;
-      
+
       noiseSuppressionEnabled = !noiseSuppressionEnabled;
       noiseSuppressionToggle.classList.toggle('active', noiseSuppressionEnabled);
-      
+
       if (noiseSuppressionEnabled) {
         initAudioContext(originalStream);
-        
+
         // Обновляем треки во всех peer connections
         const streamToUse = getStreamForWebRTC();
         if (streamToUse) {
@@ -1514,6 +1705,7 @@
         }
       }
     });
+
 
     sendBtn.addEventListener('click', () => {
       const message = messageInput.value.trim();
