@@ -1,61 +1,799 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-<meta charset="UTF-8">
-<title>Test Voice</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Voice Chat - Discord-like</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: #36393f;
+      color: #dcddde;
+      height: 100vh;
+      display: flex;
+      overflow: hidden;
+    }
+
+    .sidebar {
+      width: 240px;
+      background: #2f3136;
+      display: flex;
+      flex-direction: column;
+      padding: 20px;
+    }
+
+    .logo {
+      font-size: 20px;
+      font-weight: bold;
+      color: #fff;
+      margin-bottom: 20px;
+    }
+
+    .room-section {
+      margin-bottom: 20px;
+    }
+
+    .room-section h3 {
+      font-size: 12px;
+      text-transform: uppercase;
+      color: #8e9297;
+      margin-bottom: 10px;
+    }
+
+    .room-input {
+      width: 100%;
+      padding: 10px;
+      background: #202225;
+      border: none;
+      border-radius: 4px;
+      color: #fff;
+      margin-bottom: 10px;
+    }
+
+    .name-input {
+      width: 100%;
+      padding: 10px;
+      background: #202225;
+      border: none;
+      border-radius: 4px;
+      color: #fff;
+      margin-bottom: 10px;
+    }
+
+    .btn {
+      width: 100%;
+      padding: 12px;
+      background: #5865f2;
+      border: none;
+      border-radius: 4px;
+      color: #fff;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+      margin-bottom: 10px;
+    }
+
+    .btn:hover {
+      background: #4752c4;
+    }
+
+    .btn:disabled {
+      background: #4f545c;
+      cursor: not-allowed;
+    }
+
+    .btn-danger {
+      background: #ed4245;
+    }
+
+    .btn-danger:hover {
+      background: #c03537;
+    }
+
+    .users-list {
+      margin-top: 20px;
+    }
+
+    .user-item {
+      padding: 8px;
+      background: #202225;
+      border-radius: 4px;
+      margin-bottom: 5px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .user-avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: #5865f2;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+      color: #fff;
+    }
+
+    .main-content {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .chat-area {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      background: #36393f;
+    }
+
+    .messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+    }
+
+    .message {
+      margin-bottom: 15px;
+      display: flex;
+      gap: 15px;
+    }
+
+    .message-avatar {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: #5865f2;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+      color: #fff;
+      flex-shrink: 0;
+    }
+
+    .message-content {
+      flex: 1;
+    }
+
+    .message-header {
+      display: flex;
+      gap: 10px;
+      align-items: baseline;
+      margin-bottom: 5px;
+    }
+
+    .message-author {
+      font-weight: 600;
+      color: #fff;
+    }
+
+    .message-time {
+      font-size: 12px;
+      color: #72767d;
+    }
+
+    .message-text {
+      color: #dcddde;
+      word-wrap: break-word;
+    }
+
+    .input-area {
+      padding: 20px;
+      background: #40444b;
+      display: flex;
+      gap: 10px;
+    }
+
+    .message-input {
+      flex: 1;
+      padding: 12px;
+      background: #2f3136;
+      border: none;
+      border-radius: 4px;
+      color: #fff;
+      font-size: 16px;
+    }
+
+    .message-input:focus {
+      outline: none;
+    }
+
+    .send-btn {
+      padding: 12px 24px;
+      background: #5865f2;
+      border: none;
+      border-radius: 4px;
+      color: #fff;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .send-btn:hover {
+      background: #4752c4;
+    }
+
+    .status {
+      padding: 10px;
+      background: #202225;
+      text-align: center;
+      font-size: 14px;
+      color: #8e9297;
+    }
+
+    .status.connected {
+      color: #43b581;
+    }
+
+    .status.error {
+      color: #ed4245;
+    }
+
+    .voice-controls {
+      padding: 15px;
+      background: #2f3136;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .mic-btn {
+      padding: 12px 24px;
+      background: #ed4245;
+      border: none;
+      border-radius: 4px;
+      color: #fff;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .mic-btn.muted {
+      background: #43b581;
+    }
+
+    .mic-btn:hover {
+      opacity: 0.8;
+    }
+
+    .noise-suppression-toggle {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: #dcddde;
+      font-size: 14px;
+    }
+
+    .toggle-switch {
+      position: relative;
+      width: 44px;
+      height: 24px;
+      background: #4f545c;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .toggle-switch.active {
+      background: #5865f2;
+    }
+
+    .toggle-switch::after {
+      content: '';
+      position: absolute;
+      width: 18px;
+      height: 18px;
+      background: #fff;
+      border-radius: 50%;
+      top: 3px;
+      left: 3px;
+      transition: transform 0.2s;
+    }
+
+    .toggle-switch.active::after {
+      transform: translateX(20px);
+    }
+
+    ::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: #2f3136;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: #202225;
+      border-radius: 4px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: #1a1c1f;
+    }
+  </style>
 </head>
 <body>
-<h1>Простой тест микрофона</h1>
-<button id="startBtn">Начать</button>
-<div id="log"></div>
+  <div class="sidebar">
+    <div class="logo">🎤 Voice Chat</div>
+    
+    <div class="room-section">
+      <h3>Комната</h3>
+      <input type="text" id="roomInput" class="room-input" placeholder="ID комнаты" value="room1">
+      <input type="text" id="nameInput" class="name-input" placeholder="Ваше имя" value="">
+      <button id="joinBtn" class="btn">Присоединиться</button>
+      <button id="leaveBtn" class="btn btn-danger" disabled>Покинуть</button>
+    </div>
 
-<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-<script>
-let socket = io('https://voice-server-w83t.onrender.com');
-let localStream;
-let pc;
-let remoteAudio = new Audio();
-remoteAudio.autoplay = true;
+    <div class="users-list">
+      <h3>Участники</h3>
+      <div id="usersList"></div>
+    </div>
+  </div>
 
-document.getElementById('startBtn').onclick = async () => {
-  // Получаем микрофон
-  localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  
-  // Создаём P2P соединение
-  pc = new RTCPeerConnection({ iceServers:[{ urls:'stun:stun.l.google.com:19302' }] });
-  localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+  <div class="main-content">
+    <div class="status" id="status">Не подключено</div>
+    
+    <div class="chat-area">
+      <div class="messages" id="messages"></div>
+      <div class="input-area">
+        <input type="text" id="messageInput" class="message-input" placeholder="Напишите сообщение..." disabled>
+        <button id="sendBtn" class="send-btn" disabled>Отправить</button>
+      </div>
+    </div>
 
-  pc.ontrack = e => {
-    remoteAudio.srcObject = e.streams[0];
-    document.getElementById('log').innerText = 'Получен поток от другого участника!';
-  };
+    <div class="voice-controls">
+      <button id="micBtn" class="mic-btn" disabled>🎤 Микрофон</button>
+      <div class="noise-suppression-toggle">
+        <span>Шумоподавление</span>
+        <div class="toggle-switch" id="noiseSuppressionToggle"></div>
+      </div>
+    </div>
+  </div>
 
-  pc.onicecandidate = e => {
-    if(e.candidate) socket.emit('ice', { candidate:e.candidate });
-  };
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <script>
+    const socket = io('https://voice-server-w83t.onrender.com');
+    
+    let localStream = null;
+    let originalStream = null; // Оригинальный поток для переподключения
+    let peerConnections = {};
+    let audioContext = null;
+    let sourceNode = null;
+    let destinationNode = null;
+    let noiseSuppressionEnabled = false;
+    let isMuted = false;
+    let currentRoom = null;
+    let userName = null;
+    let remoteAudios = {};
 
-  // Создаём offer
-  const offer = await pc.createOffer();
-  await pc.setLocalDescription(offer);
-  socket.emit('offer', { offer });
+    const roomInput = document.getElementById('roomInput');
+    const nameInput = document.getElementById('nameInput');
+    const joinBtn = document.getElementById('joinBtn');
+    const leaveBtn = document.getElementById('leaveBtn');
+    const status = document.getElementById('status');
+    const usersList = document.getElementById('usersList');
+    const messages = document.getElementById('messages');
+    const messageInput = document.getElementById('messageInput');
+    const sendBtn = document.getElementById('sendBtn');
+    const micBtn = document.getElementById('micBtn');
+    const noiseSuppressionToggle = document.getElementById('noiseSuppressionToggle');
 
-  socket.on('offer', async data => {
-    await pc.setRemoteDescription(data.offer);
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-    socket.emit('answer', { answer });
-  });
+    // Инициализация Web Audio API для шумоподавления
+    function initAudioContext(stream) {
+      if (audioContext) {
+        audioContext.close();
+      }
+      
+      audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      sourceNode = audioContext.createMediaStreamSource(stream);
+      
+      // Создаём цепочку для шумоподавления
+      const compressor = audioContext.createDynamicsCompressor();
+      compressor.threshold.value = -50;
+      compressor.knee.value = 40;
+      compressor.ratio.value = 12;
+      compressor.attack.value = 0;
+      compressor.release.value = 0.25;
 
-  socket.on('answer', async data => {
-    await pc.setRemoteDescription(data.answer);
-  });
+      // High-pass filter для удаления низкочастотного шума
+      const highPass = audioContext.createBiquadFilter();
+      highPass.type = 'highpass';
+      highPass.frequency.value = 80;
 
-  socket.on('ice', async data => {
-    if(data.candidate) await pc.addIceCandidate(data.candidate);
-  });
+      // Low-pass filter для удаления высокочастотного шума
+      const lowPass = audioContext.createBiquadFilter();
+      lowPass.type = 'lowpass';
+      lowPass.frequency.value = 8000;
 
-  document.getElementById('log').innerText = 'Микрофон подключён, ждём другого пользователя...';
-};
-</script>
+      // Gain node для контроля громкости
+      const gainNode = audioContext.createGain();
+      gainNode.gain.value = 1.0;
+
+      // Подключаем цепочку
+      sourceNode.connect(highPass);
+      highPass.connect(lowPass);
+      lowPass.connect(compressor);
+      compressor.connect(gainNode);
+      
+      destinationNode = audioContext.createMediaStreamDestination();
+      gainNode.connect(destinationNode);
+
+      return destinationNode.stream;
+    }
+
+    function applyNoiseSuppression(stream) {
+      if (!noiseSuppressionEnabled) {
+        return stream;
+      }
+      
+      if (!audioContext || audioContext.state === 'closed') {
+        const processedStream = initAudioContext(stream);
+        return processedStream;
+      }
+      
+      return destinationNode.stream;
+    }
+
+    noiseSuppressionToggle.addEventListener('click', () => {
+      noiseSuppressionEnabled = !noiseSuppressionEnabled;
+      noiseSuppressionToggle.classList.toggle('active', noiseSuppressionEnabled);
+      
+      if (originalStream) {
+        // Останавливаем старые треки
+        if (audioContext && audioContext.state !== 'closed') {
+          audioContext.close();
+        }
+        originalStream.getAudioTracks().forEach(track => track.stop());
+        
+        navigator.mediaDevices.getUserMedia({ 
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true
+          }
+        })
+          .then(stream => {
+            originalStream = stream;
+            
+            if (noiseSuppressionEnabled) {
+              initAudioContext(originalStream);
+            }
+            
+            // Обновляем треки во всех peer connections
+            const streamToUse = getStreamForWebRTC();
+            if (streamToUse) {
+              Object.values(peerConnections).forEach(pc => {
+                const sender = pc.getSenders().find(s => s.track && s.track.kind === 'audio');
+                if (sender && streamToUse.getAudioTracks()[0]) {
+                  sender.replaceTrack(streamToUse.getAudioTracks()[0]);
+                }
+              });
+            }
+          })
+          .catch(err => console.error('Ошибка при переподключении микрофона:', err));
+      }
+    });
+
+    function getStreamForWebRTC() {
+      if (noiseSuppressionEnabled && destinationNode) {
+        return destinationNode.stream;
+      }
+      return originalStream;
+    }
+
+    async function createPeerConnection(userId) {
+      const pc = new RTCPeerConnection({
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' }
+        ]
+      });
+
+      // Добавляем локальный поток
+      const streamToAdd = getStreamForWebRTC();
+      if (streamToAdd) {
+        streamToAdd.getTracks().forEach(track => {
+          pc.addTrack(track, streamToAdd);
+        });
+      }
+
+      // Обработка входящих треков
+      pc.ontrack = (event) => {
+        const [remoteStream] = event.streams;
+        if (!remoteAudios[userId]) {
+          const audio = new Audio();
+          audio.srcObject = remoteStream;
+          audio.autoplay = true;
+          audio.volume = 1.0;
+          remoteAudios[userId] = audio;
+        } else {
+          remoteAudios[userId].srcObject = remoteStream;
+        }
+      };
+
+      // Отправка ICE кандидатов
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          socket.emit('ice-candidate', {
+            candidate: event.candidate,
+            to: userId,
+            roomId: currentRoom
+          });
+        }
+      };
+
+      pc.onconnectionstatechange = () => {
+        console.log(`Connection state with ${userId}:`, pc.connectionState);
+        if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+          if (remoteAudios[userId]) {
+            remoteAudios[userId].pause();
+            delete remoteAudios[userId];
+          }
+        }
+      };
+
+      return pc;
+    }
+
+    async function establishConnection(userId) {
+      if (peerConnections[userId]) {
+        return;
+      }
+
+      const pc = await createPeerConnection(userId);
+      peerConnections[userId] = pc;
+
+      // Создаём offer
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+
+      socket.emit('offer', {
+        offer: pc.localDescription,
+        to: userId,
+        roomId: currentRoom
+      });
+    }
+
+    joinBtn.addEventListener('click', async () => {
+      const roomId = roomInput.value.trim();
+      const name = nameInput.value.trim() || `User-${Math.random().toString(36).substr(2, 6)}`;
+      
+      if (!roomId) {
+        alert('Введите ID комнаты');
+        return;
+      }
+
+      try {
+        // Запрашиваем доступ к микрофону
+        localStream = await navigator.mediaDevices.getUserMedia({ 
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true
+          }
+        });
+
+        originalStream = localStream;
+        
+        // Инициализируем аудио контекст если шумоподавление включено
+        if (noiseSuppressionEnabled) {
+          initAudioContext(originalStream);
+        }
+
+        currentRoom = roomId;
+        userName = name;
+
+        socket.emit('join-room', { roomId, name });
+        
+        joinBtn.disabled = true;
+        leaveBtn.disabled = false;
+        micBtn.disabled = false;
+        messageInput.disabled = false;
+        sendBtn.disabled = false;
+        roomInput.disabled = true;
+        nameInput.disabled = true;
+        
+        status.textContent = 'Подключено';
+        status.className = 'status connected';
+      } catch (err) {
+        console.error('Ошибка доступа к микрофону:', err);
+        alert('Не удалось получить доступ к микрофону');
+      }
+    });
+
+    leaveBtn.addEventListener('click', () => {
+      // Останавливаем все соединения
+      Object.values(peerConnections).forEach(pc => pc.close());
+      peerConnections = {};
+      
+      Object.values(remoteAudios).forEach(audio => {
+        audio.pause();
+        audio.srcObject = null;
+      });
+      remoteAudios = {};
+
+      if (originalStream) {
+        originalStream.getTracks().forEach(track => track.stop());
+        originalStream = null;
+        localStream = null;
+      }
+
+      if (audioContext) {
+        audioContext.close();
+        audioContext = null;
+      }
+
+      socket.emit('leave-room', { roomId: currentRoom });
+      
+      currentRoom = null;
+      userName = null;
+      
+      joinBtn.disabled = false;
+      leaveBtn.disabled = true;
+      micBtn.disabled = true;
+      messageInput.disabled = true;
+      sendBtn.disabled = true;
+      roomInput.disabled = false;
+      nameInput.disabled = false;
+      
+      status.textContent = 'Не подключено';
+      status.className = 'status';
+      usersList.innerHTML = '';
+      messages.innerHTML = '';
+    });
+
+    micBtn.addEventListener('click', () => {
+      if (!originalStream) return;
+      
+      isMuted = !isMuted;
+      originalStream.getAudioTracks().forEach(track => {
+        track.enabled = !isMuted;
+      });
+      
+      micBtn.textContent = isMuted ? '🔇 Микрофон выключен' : '🎤 Микрофон';
+      micBtn.classList.toggle('muted', isMuted);
+    });
+
+    sendBtn.addEventListener('click', () => {
+      const message = messageInput.value.trim();
+      if (message && currentRoom) {
+        socket.emit('message', { roomId: currentRoom, message });
+        messageInput.value = '';
+      }
+    });
+
+    messageInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        sendBtn.click();
+      }
+    });
+
+    // Socket events
+    socket.on('room-full', () => {
+      alert('Комната заполнена (максимум 4 человека)');
+      status.textContent = 'Комната заполнена';
+      status.className = 'status error';
+    });
+
+    socket.on('room-users', (users) => {
+      usersList.innerHTML = '';
+      users.forEach(user => {
+        const userItem = document.createElement('div');
+        userItem.className = 'user-item';
+        userItem.innerHTML = `
+          <div class="user-avatar">${user.name[0].toUpperCase()}</div>
+          <span>${user.name}</span>
+        `;
+        usersList.appendChild(userItem);
+      });
+    });
+
+    socket.on('user-joined', ({ userId, name }) => {
+      const userItem = document.createElement('div');
+      userItem.className = 'user-item';
+      userItem.id = `user-${userId}`;
+      userItem.innerHTML = `
+        <div class="user-avatar">${name[0].toUpperCase()}</div>
+        <span>${name}</span>
+      `;
+      usersList.appendChild(userItem);
+      
+      // Устанавливаем соединение с новым пользователем
+      establishConnection(userId);
+    });
+
+    socket.on('user-left', ({ userId }) => {
+      const userItem = document.getElementById(`user-${userId}`);
+      if (userItem) {
+        userItem.remove();
+      }
+      
+      if (peerConnections[userId]) {
+        peerConnections[userId].close();
+        delete peerConnections[userId];
+      }
+      
+      if (remoteAudios[userId]) {
+        remoteAudios[userId].pause();
+        delete remoteAudios[userId];
+      }
+    });
+
+    socket.on('existing-user', ({ userId, name }) => {
+      establishConnection(userId);
+    });
+
+    socket.on('offer', async ({ offer, from }) => {
+      const pc = await createPeerConnection(from);
+      peerConnections[from] = pc;
+      
+      await pc.setRemoteDescription(new RTCSessionDescription(offer));
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      
+      socket.emit('answer', {
+        answer: pc.localDescription,
+        to: from,
+        roomId: currentRoom
+      });
+    });
+
+    socket.on('answer', async ({ answer, from }) => {
+      const pc = peerConnections[from];
+      if (pc) {
+        await pc.setRemoteDescription(new RTCSessionDescription(answer));
+      }
+    });
+
+    socket.on('ice-candidate', async ({ candidate, from }) => {
+      const pc = peerConnections[from];
+      if (pc && candidate) {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      }
+    });
+
+    socket.on('message', ({ userId, name, message, timestamp }) => {
+      const messageDiv = document.createElement('div');
+      messageDiv.className = 'message';
+      
+      const time = new Date(timestamp).toLocaleTimeString('ru-RU', { 
+        hour: '2-digit', 
+        minute: '2-digit' 
+      });
+      
+      messageDiv.innerHTML = `
+        <div class="message-avatar">${name[0].toUpperCase()}</div>
+        <div class="message-content">
+          <div class="message-header">
+            <span class="message-author">${name}</span>
+            <span class="message-time">${time}</span>
+          </div>
+          <div class="message-text">${message}</div>
+        </div>
+      `;
+      
+      messages.appendChild(messageDiv);
+      messages.scrollTop = messages.scrollHeight;
+    });
+
+    socket.on('connect', () => {
+      console.log('Подключено к серверу');
+    });
+
+    socket.on('disconnect', () => {
+      status.textContent = 'Отключено от сервера';
+      status.className = 'status error';
+    });
+  </script>
 </body>
 </html>

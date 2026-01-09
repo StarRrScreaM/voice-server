@@ -8,39 +8,112 @@ const io = new Server(server, {
   cors: { origin: '*' }
 });
 
-let users = {};
+// Структура: rooms[roomId] = { users: { socketId: { name, socket } } }
+const rooms = {};
 
 io.on('connection', socket => {
-  socket.on('join', name => {
-    users[socket.id] = name;
-    io.emit('users', Object.values(users));
+  let currentRoom = null;
+  let userName = null;
+
+  socket.on('join-room', ({ roomId, name }) => {
+    // Покидаем предыдущую комнату
+    if (currentRoom && rooms[currentRoom]) {
+      delete rooms[currentRoom].users[socket.id];
+      socket.leave(currentRoom);
+      io.to(currentRoom).emit('user-left', { userId: socket.id, name: userName });
+    }
+
+    // Присоединяемся к новой комнате
+    if (!rooms[roomId]) {
+      rooms[roomId] = { users: {} };
+    }
+
+    // Проверяем лимит пользователей (максимум 4)
+    const userCount = Object.keys(rooms[roomId].users).length;
+    if (userCount >= 4) {
+      socket.emit('room-full');
+      return;
+    }
+
+    currentRoom = roomId;
+    userName = name || `User-${socket.id.substring(0, 6)}`;
+    
+    rooms[roomId].users[socket.id] = { name: userName, socket };
+    socket.join(roomId);
+
+    // Отправляем список пользователей новому участнику
+    const usersInRoom = Object.entries(rooms[roomId].users).map(([id, user]) => ({
+      id,
+      name: user.name
+    }));
+    socket.emit('room-users', usersInRoom);
+
+    // Уведомляем других о новом пользователе
+    socket.to(roomId).emit('user-joined', { userId: socket.id, name: userName });
+
+    // Отправляем существующих пользователей новому участнику для установки соединений
+    const otherUsers = usersInRoom.filter(u => u.id !== socket.id);
+    otherUsers.forEach(user => {
+      socket.emit('existing-user', { userId: user.id, name: user.name });
+    });
   });
 
-  socket.on('message', msg => {
-    io.emit('message', msg);
-  });
-
-  socket.on('offer', data => {
-    if(io.sockets.sockets.get(data.to)) {
-      io.to(data.to).emit('offer', { offer: data.offer, from: socket.id });
+  socket.on('message', ({ roomId, message }) => {
+    if (currentRoom === roomId && rooms[roomId]) {
+      io.to(roomId).emit('message', {
+        userId: socket.id,
+        name: userName,
+        message,
+        timestamp: new Date().toISOString()
+      });
     }
   });
 
-  socket.on('answer', data => {
-    if(io.sockets.sockets.get(data.to)) {
-      io.to(data.to).emit('answer', { answer: data.answer, from: socket.id });
+  // WebRTC signaling
+  socket.on('offer', ({ offer, to, roomId }) => {
+    if (currentRoom === roomId && rooms[roomId]?.users[to]) {
+      io.to(to).emit('offer', { offer, from: socket.id });
     }
   });
 
-  socket.on('ice', data => {
-    if(io.sockets.sockets.get(data.to)) {
-      io.to(data.to).emit('ice', data.candidate);
+  socket.on('answer', ({ answer, to, roomId }) => {
+    if (currentRoom === roomId && rooms[roomId]?.users[to]) {
+      io.to(to).emit('answer', { answer, from: socket.id });
+    }
+  });
+
+  socket.on('ice-candidate', ({ candidate, to, roomId }) => {
+    if (currentRoom === roomId && rooms[roomId]?.users[to]) {
+      io.to(to).emit('ice-candidate', { candidate, from: socket.id });
+    }
+  });
+
+  socket.on('leave-room', ({ roomId }) => {
+    if (currentRoom === roomId && rooms[roomId]) {
+      delete rooms[roomId].users[socket.id];
+      socket.leave(roomId);
+      socket.to(roomId).emit('user-left', { userId: socket.id, name: userName });
+      
+      // Удаляем комнату, если она пустая
+      if (Object.keys(rooms[roomId].users).length === 0) {
+        delete rooms[roomId];
+      }
+      
+      currentRoom = null;
+      userName = null;
     }
   });
 
   socket.on('disconnect', () => {
-    delete users[socket.id];
-    io.emit('users', Object.values(users));
+    if (currentRoom && rooms[currentRoom]) {
+      delete rooms[currentRoom].users[socket.id];
+      socket.to(currentRoom).emit('user-left', { userId: socket.id, name: userName });
+      
+      // Удаляем комнату, если она пустая
+      if (Object.keys(rooms[currentRoom].users).length === 0) {
+        delete rooms[currentRoom];
+      }
+    }
   });
 });
 
