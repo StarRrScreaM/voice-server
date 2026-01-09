@@ -2,182 +2,60 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<title>Voice Room</title>
-<style>
-body { font-family: Arial; background:#0f172a; color:#e5e7eb; display:flex; justify-content:center; align-items:center; height:100vh; margin:0; }
-.app { width:550px; background:#020617; border-radius:16px; padding:20px; box-shadow:0 0 40px rgba(0,0,0,.6); }
-h1 { text-align:center; margin-top:0; }
-#login .controls { display:flex; gap:10px; margin-top:10px; }
-#login input { flex:2; padding:10px; border-radius:8px; border:none; font-size:16px; }
-#login button { flex:1; border-radius:8px; border:none; font-size:16px; background:#2563eb; color:white; cursor:pointer; }
-#login button:hover { background:#1d4ed8; }
-.hidden { display:none; }
-.layout { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
-.box { background:#020617; border:1px solid #1e293b; border-radius:10px; padding:10px; height:200px; overflow-y:auto; }
-.user { display:flex; align-items:center; margin-bottom:5px; font-size:14px; }
-.indicator { width:60px; height:10px; background:#555; margin-right:5px; border-radius:5px; overflow:hidden; }
-.level { height:100%; background:#16a34a; width:0%; transition:width 0.05s; }
-.controls { display:flex; gap:10px; margin-top:10px; }
-.volume-slider { width:80px; }
-</style>
+<title>Test Voice</title>
 </head>
 <body>
-<div class="app">
-<h1>🎧 Voice Room</h1>
-
-<div id="login">
-  <input id="name" placeholder="Твоё имя" />
-  <div class="controls">
-    <button onclick="joinRoom()">Войти в комнату</button>
-  </div>
-</div>
-
-<div id="room" class="hidden">
-  <div class="layout">
-    <div class="box" id="users"></div>
-    <div class="box" id="messages"></div>
-  </div>
-  <input id="msg" placeholder="Сообщение" onkeydown="if(event.key==='Enter') send()" />
-  <div class="controls">
-    <button onclick="send()">Отправить</button>
-    <button onclick="leaveRoom()">Выйти из комнаты</button>
-    <button id="noiseBtn">Шумоподавление: Вкл</button>
-  </div>
-</div>
-</div>
+<h1>Простой тест микрофона</h1>
+<button id="startBtn">Начать</button>
+<div id="log"></div>
 
 <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
 <script>
-let socket, name, localStream, peers = {}, audioElements = {}, audioAnalyzers = {};
-let noiseSuppression = true;
-const usersDiv = document.getElementById('users');
-const messages = document.getElementById('messages');
-const msg = document.getElementById('msg');
+let socket = io('https://voice-server-w83t.onrender.com');
+let localStream;
+let pc;
+let remoteAudio = new Audio();
+remoteAudio.autoplay = true;
 
-document.getElementById('noiseBtn').onclick = () => {
-  noiseSuppression = !noiseSuppression;
-  if(localStream) localStream.getAudioTracks()[0].applyConstraints({ noiseSuppression });
-  document.getElementById('noiseBtn').innerText = `Шумоподавление: ${noiseSuppression?'Вкл':'Выкл'}`;
+document.getElementById('startBtn').onclick = async () => {
+  // Получаем микрофон
+  localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  
+  // Создаём P2P соединение
+  pc = new RTCPeerConnection({ iceServers:[{ urls:'stun:stun.l.google.com:19302' }] });
+  localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+
+  pc.ontrack = e => {
+    remoteAudio.srcObject = e.streams[0];
+    document.getElementById('log').innerText = 'Получен поток от другого участника!';
+  };
+
+  pc.onicecandidate = e => {
+    if(e.candidate) socket.emit('ice', { candidate:e.candidate });
+  };
+
+  // Создаём offer
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+  socket.emit('offer', { offer });
+
+  socket.on('offer', async data => {
+    await pc.setRemoteDescription(data.offer);
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    socket.emit('answer', { answer });
+  });
+
+  socket.on('answer', async data => {
+    await pc.setRemoteDescription(data.answer);
+  });
+
+  socket.on('ice', async data => {
+    if(data.candidate) await pc.addIceCandidate(data.candidate);
+  });
+
+  document.getElementById('log').innerText = 'Микрофон подключён, ждём другого пользователя...';
 };
-
-async function joinRoom() {
-  name = document.getElementById('name').value.trim();
-  if(!name) return alert('Введите имя');
-  document.getElementById('login').classList.add('hidden');
-  document.getElementById('room').classList.remove('hidden');
-
-  socket = io('https://voice-server-w83t.onrender.com');
-  localStream = await navigator.mediaDevices.getUserMedia({ audio:{ noiseSuppression } });
-
-  // Эквалайзер локального микрофона
-  const audioCtx = new AudioContext();
-  const localSource = audioCtx.createMediaStreamSource(localStream);
-  const analyserLocal = audioCtx.createAnalyser();
-  localSource.connect(analyserLocal);
-  analyserLocal.fftSize = 256;
-  const dataArrayLocal = new Uint8Array(analyserLocal.frequencyBinCount);
-  setInterval(()=>{
-    analyserLocal.getByteFrequencyData(dataArrayLocal);
-    const vol = dataArrayLocal.reduce((a,b)=>a+b,0)/dataArrayLocal.length;
-    const levelEl = document.getElementById(`level_${name}`);
-    if(levelEl) levelEl.style.width = Math.min(100, vol*2)+'%';
-  },50);
-
-  socket.emit('join', name);
-
-  socket.on('users', usersList=>{
-    usersDiv.innerHTML='';
-    usersList.forEach(u=>{
-      if(!audioElements[u]) {
-        const div = document.createElement('div');
-        div.className='user';
-        div.id=`user_${u}`;
-        div.innerHTML=`<div class='indicator'><div class='level' id='level_${u}'></div></div> ${u}`;
-        usersDiv.appendChild(div);
-      }
-      if(u!==name && !peers[u]) createPeer(u, true);
-    });
-  });
-
-  socket.on('message', m=>{
-    messages.innerHTML+=`<div><b>${m.name}:</b> ${m.text}</div>`;
-    messages.scrollTop = messages.scrollHeight;
-  });
-
-  socket.on('offer', async data=>{
-    if(!peers[data.from]) createPeer(data.from, false, data.offer);
-  });
-
-  socket.on('answer', async data=>{
-    await peers[data.from].setRemoteDescription(data.answer);
-  });
-
-  socket.on('ice', async data=>{
-    if(peers[data.from]) await peers[data.from].addIceCandidate(data.candidate);
-  });
-}
-
-function createPeer(userId, isInitiator, offer=null){
-  const pc = new RTCPeerConnection({ iceServers:[{ urls:'stun:stun.l.google.com:19302' }] });
-  peers[userId] = pc;
-  localStream.getTracks().forEach(track=>pc.addTrack(track, localStream));
-
-  pc.onicecandidate = e=>{
-    if(e.candidate) socket.emit('ice',{ candidate:e.candidate, to:userId, from:name });
-  };
-
-  pc.ontrack = e=>{
-    if(!audioElements[userId]){
-      const audioEl = document.createElement('audio');
-      audioEl.srcObject = e.streams[0];
-      audioEl.autoplay = true;
-      audioElements[userId] = audioEl;
-      document.body.appendChild(audioEl);
-
-      const audioCtx = new AudioContext();
-      const analyser = audioCtx.createAnalyser();
-      const src = audioCtx.createMediaStreamSource(e.streams[0]);
-      src.connect(analyser);
-      analyser.fftSize=256;
-      audioAnalyzers[userId] = analyser;
-      const dataArr = new Uint8Array(analyser.frequencyBinCount);
-      setInterval(()=>{
-        analyser.getByteFrequencyData(dataArr);
-        const vol = dataArr.reduce((a,b)=>a+b,0)/dataArr.length;
-        const levelEl = document.getElementById(`level_${userId}`);
-        if(levelEl) levelEl.style.width = Math.min(100, vol*2)+'%';
-      },50);
-    }
-  };
-
-  if(isInitiator){
-    pc.createOffer().then(offer=>{
-      pc.setLocalDescription(offer);
-      socket.emit('offer',{ offer, to:userId, from:name });
-    });
-  } else if(offer){
-    pc.setRemoteDescription(offer).then(async ()=>{
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-      socket.emit('answer',{ answer, to:userId, from:name });
-    });
-  }
-}
-
-function send(){ const text=msg.value.trim(); if(!text) return; socket.emit('message',{name,text}); msg.value=''; }
-
-function leaveRoom(){
-  for(let p in peers) peers[p].close();
-  peers={};
-  if(localStream) localStream.getTracks().forEach(t=>t.stop());
-  audioElements={};
-  audioAnalyzers={};
-  socket.disconnect();
-  document.getElementById('room').classList.add('hidden');
-  document.getElementById('login').classList.remove('hidden');
-  messages.innerHTML='';
-  usersDiv.innerHTML='';
-}
 </script>
 </body>
 </html>
