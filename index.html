@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-  <meta charset="UTF-8">
+<meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Voice Chat - Discord-like</title>
   <style>
@@ -605,8 +605,8 @@
     </div>
   </div>
 
-  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-  <script>
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+<script>
     const socket = io('https://voice-server-w83t.onrender.com');
     
     const ROOM_ID = 'main'; // Одна общая комната
@@ -701,20 +701,36 @@
 
     // Инициализация анализатора для удаленного пользователя
     function initRemoteAnalyser(userId, stream) {
-      if (remoteAnalysers[userId]) return;
+      if (remoteAnalysers[userId]) {
+        // Обновляем если поток изменился
+        if (remoteStreams[userId] !== stream) {
+          try {
+            if (remoteAnalysers[userId].audioContext) {
+              remoteAnalysers[userId].audioContext.close();
+            }
+          } catch (e) {}
+          delete remoteAnalysers[userId];
+        } else {
+          return; // Уже инициализирован
+        }
+      }
       
       try {
         const ctx = new (window.AudioContext || window.webkitAudioContext)();
         const source = ctx.createMediaStreamSource(stream);
         const analyser = ctx.createAnalyser();
         analyser.fftSize = 256;
+        analyser.smoothingTimeConstant = 0.8;
         source.connect(analyser);
         
-        // Подключаем к destination чтобы звук воспроизводился
-        analyser.connect(ctx.destination);
+        // НЕ подключаем к destination - звук воспроизводится через Audio элемент
+        // Подключение к destination может вызвать проблемы с воспроизведением
         
+        analyser.audioContext = ctx; // Сохраняем для закрытия
         remoteAnalysers[userId] = analyser;
         remoteStreams[userId] = stream;
+        
+        console.log(`✅ Analyser initialized for ${userId}`);
       } catch (e) {
         console.warn('Не удалось создать анализатор для', userId, e);
       }
@@ -745,16 +761,28 @@
 
     // Инициализация Web Audio API для шумоподавления
     function initAudioContext(stream) {
+      // Закрываем старый контекст если есть
       if (audioContext && audioContext.state !== 'closed') {
-        audioContext.close();
+        try {
+          if (destinationNode) {
+            destinationNode.disconnect();
+          }
+          if (sourceNode) {
+            sourceNode.disconnect();
+          }
+          audioContext.close();
+        } catch (e) {
+          console.warn('Error closing old audio context:', e);
+        }
       }
       
       audioContext = new (window.AudioContext || window.webkitAudioContext)();
       sourceNode = audioContext.createMediaStreamSource(stream);
       
-      // Создаём анализатор для визуализации
+      // Создаём анализатор для визуализации микрофона
       micAnalyser = audioContext.createAnalyser();
       micAnalyser.fftSize = 256;
+      micAnalyser.smoothingTimeConstant = 0.8;
       sourceNode.connect(micAnalyser);
       
       // Создаём цепочку для шумоподавления
@@ -776,21 +804,29 @@
       const gainNode = audioContext.createGain();
       gainNode.gain.value = 1.0;
 
+      // Подключаем цепочку
       sourceNode.connect(highPass);
       highPass.connect(lowPass);
       lowPass.connect(compressor);
       compressor.connect(gainNode);
       
+      // Создаём destination для WebRTC
       destinationNode = audioContext.createMediaStreamDestination();
       gainNode.connect(destinationNode);
 
+      console.log('✅ Audio context initialized with noise suppression');
       return destinationNode.stream;
     }
 
     function getStreamForWebRTC() {
-      if (noiseSuppressionEnabled && destinationNode) {
-        return destinationNode.stream;
+      // Если шумоподавление включено и destination готов, используем его
+      if (noiseSuppressionEnabled && destinationNode && audioContext && audioContext.state === 'running') {
+        // Проверяем что в destination есть треки
+        if (destinationNode.stream.getAudioTracks().length > 0) {
+          return destinationNode.stream;
+        }
       }
+      // Иначе используем оригинальный поток
       return originalStream;
     }
 
@@ -874,15 +910,39 @@
               console.error(`Audio error for ${userId}:`, e);
             };
             
-            // Принудительно запускаем воспроизведение
-            audio.play().catch(err => {
-              console.error(`Error playing audio for ${userId}:`, err);
-            });
-            
             remoteAudios[userId] = audio;
             
-            // Инициализируем анализатор для визуализации
+            // Инициализируем анализатор для визуализации ДО попытки воспроизведения
             initRemoteAnalyser(userId, remoteStream);
+            
+            // Принудительно запускаем воспроизведение с несколькими попытками
+            const playAudio = async () => {
+              try {
+                await audio.play();
+                console.log(`✅ Audio playing successfully for ${userId}`);
+              } catch (err) {
+                console.warn(`⚠️ Autoplay blocked for ${userId}, will retry:`, err.name);
+                // Пробуем еще раз после небольшой задержки
+                setTimeout(() => {
+                  audio.play().catch(e => {
+                    console.error(`❌ Failed to play audio for ${userId}:`, e);
+                  });
+                }, 500);
+              }
+            };
+            
+            // Пробуем сразу
+            playAudio();
+            
+            // Также пробуем при любом взаимодействии пользователя
+            const enableAudioOnInteraction = () => {
+              if (audio.paused) {
+                audio.play().catch(() => {});
+              }
+            };
+            
+            document.addEventListener('click', enableAudioOnInteraction, { once: true });
+            document.addEventListener('touchstart', enableAudioOnInteraction, { once: true });
             
             // Обновляем статус - трек получен
             const statusEl = document.getElementById(`status-${userId}`);
@@ -1063,14 +1123,21 @@
       if (peerConnections[userId]) {
         const existingState = peerConnections[userId].signalingState;
         const existingConnState = peerConnections[userId].connectionState;
+        const existingIceState = peerConnections[userId].iceConnectionState;
         
-        if (existingState !== 'closed' && existingConnState !== 'closed' && 
-            existingState !== 'failed' && existingConnState !== 'failed') {
-          console.log(`Connection with ${userId} already exists, state:`, existingState, existingConnState);
+        // Если соединение активно и работает, не переподключаемся
+        if (existingState !== 'closed' && 
+            existingConnState !== 'closed' && existingConnState !== 'failed' &&
+            (existingIceState === 'connected' || existingIceState === 'completed' || existingIceState === 'checking')) {
+          console.log(`Connection with ${userId} already exists and active, state:`, existingState, existingConnState, existingIceState);
           return;
         } else {
-          console.log(`Closing old connection with ${userId}, state:`, existingState, existingConnState);
-          peerConnections[userId].close();
+          console.log(`Closing old connection with ${userId}, state:`, existingState, existingConnState, existingIceState);
+          try {
+            peerConnections[userId].close();
+          } catch (e) {
+            console.warn('Error closing old connection:', e);
+          }
           delete peerConnections[userId];
         }
       }
@@ -1091,7 +1158,7 @@
         });
         
         // Устанавливаем кодек предпочтения (Opus для лучшего качества)
-        await pc.setLocalDescription(offer);
+  await pc.setLocalDescription(offer);
         
         console.log(`Offer created for ${userId}:`, offer.type);
         
@@ -1123,12 +1190,14 @@
 
         originalStream = stream;
         
-        // Инициализируем аудио контекст для визуализации
-        audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        sourceNode = audioContext.createMediaStreamSource(originalStream);
-        micAnalyser = audioContext.createAnalyser();
+        // Инициализируем аудио контекст для визуализации микрофона
+        // Создаем отдельный контекст для визуализации, чтобы не мешать WebRTC
+        const vizContext = new (window.AudioContext || window.webkitAudioContext)();
+        const vizSource = vizContext.createMediaStreamSource(originalStream);
+        micAnalyser = vizContext.createAnalyser();
         micAnalyser.fftSize = 256;
-        sourceNode.connect(micAnalyser);
+        micAnalyser.smoothingTimeConstant = 0.8;
+        vizSource.connect(micAnalyser);
         
         // Инициализируем аудио контекст если шумоподавление включено
         if (noiseSuppressionEnabled) {
@@ -1396,7 +1465,7 @@
           offerToReceiveAudio: true,
           offerToReceiveVideo: false
         });
-        await pc.setLocalDescription(answer);
+    await pc.setLocalDescription(answer);
         
         console.log(`Answer created for ${from}:`, answer.type, 'State:', pc.signalingState);
         
@@ -1543,6 +1612,6 @@
         }
       });
     }, 100);
-  </script>
+</script>
 </body>
 </html>
