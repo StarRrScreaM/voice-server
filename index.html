@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <title>Voice Room</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #0f172a;
+      color: #e5e7eb;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+    }
+    .app {
+      width: 420px;
+      background: #020617;
+      border-radius: 16px;
+      padding: 20px;
+      box-shadow: 0 0 40px rgba(0,0,0,.6);
+    }
+    h1 { text-align: center; margin-top: 0; }
+    input, button {
+      width: 100%;
+      padding: 10px;
+      margin-top: 10px;
+      border-radius: 8px;
+      border: none;
+      font-size: 16px;
+    }
+    button {
+      background: #2563eb;
+      color: white;
+      cursor: pointer;
+    }
+    button:hover { background: #1d4ed8; }
+    .hidden { display: none; }
+    .layout {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .box {
+      background: #020617;
+      border: 1px solid #1e293b;
+      border-radius: 10px;
+      padding: 10px;
+      height: 200px;
+      overflow-y: auto;
+    }
+    .chat input { width: calc(100% - 20px); }
+    .user { opacity: .8; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <h1>🎧 Voice Room</h1>
+
+    <div id="login">
+      <input id="name" placeholder="Твоё имя" />
+      <button onclick="joinRoom()">Войти в комнату</button>
+    </div>
+
+    <div id="room" class="hidden">
+      <div class="layout">
+        <div class="box" id="users"></div>
+        <div class="box" id="messages"></div>
+      </div>
+      <input id="msg" placeholder="Сообщение" onkeydown="if(event.key==='Enter')send()" />
+    </div>
+  </div>
+
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+<script>
+let socket
+let name
+
+function joinRoom() {
+  name = document.getElementById('name').value.trim()
+  if (!name) return alert('Введите имя')
+
+  document.getElementById('login').classList.add('hidden')
+  document.getElementById('room').classList.remove('hidden')
+
+  socket = io('https://voice-server-w83t.onrender.com')
+
+  socket.emit('join', name)
+
+  socket.on('users', users => {
+    usersDiv.innerHTML = users.map(u => `<div class='user'>👤 ${u}</div>`).join('')
+  })
+
+  socket.on('message', m => {
+    messages.innerHTML += `<div><b>${m.name}:</b> ${m.text}</div>`
+    messages.scrollTop = messages.scrollHeight
+  })
+
+  navigator.mediaDevices.getUserMedia({ audio: true })
+}
+
+function send() {
+  const text = msg.value
+  if (!text) return
+  socket.emit('message', { name, text })
+  msg.value = ''
+}
+</script>
+</body>
+</html>
