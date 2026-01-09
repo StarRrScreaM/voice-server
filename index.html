@@ -378,11 +378,169 @@
     @media (max-width: 768px) {
       body {
         flex-direction: column;
+        height: 100vh;
+        overflow: hidden;
       }
 
       .sidebar {
         width: 100%;
-        max-height: 200px;
+        max-height: 40vh;
+        padding: 15px;
+        overflow-y: auto;
+      }
+
+      .logo {
+        font-size: 18px;
+        margin-bottom: 15px;
+      }
+
+      .room-section {
+        margin-bottom: 15px;
+      }
+
+      .name-input, .btn {
+        padding: 10px;
+        font-size: 14px;
+      }
+
+      .mic-test {
+        padding: 10px;
+        margin-bottom: 15px;
+      }
+
+      .visualizer {
+        height: 50px;
+      }
+
+      .users-list {
+        margin-top: 15px;
+      }
+
+      .user-item {
+        padding: 8px;
+        margin-bottom: 6px;
+      }
+
+      .user-avatar {
+        width: 35px;
+        height: 35px;
+        font-size: 14px;
+      }
+
+      .user-name {
+        font-size: 13px;
+      }
+
+      .user-status {
+        font-size: 10px;
+      }
+
+      .main-content {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .status {
+        padding: 8px;
+        font-size: 12px;
+      }
+
+      .messages {
+        padding: 15px;
+        font-size: 14px;
+      }
+
+      .message {
+        margin-bottom: 12px;
+        gap: 10px;
+      }
+
+      .message-avatar {
+        width: 35px;
+        height: 35px;
+        font-size: 14px;
+      }
+
+      .input-area {
+        padding: 15px;
+        gap: 8px;
+      }
+
+      .message-input {
+        padding: 10px;
+        font-size: 14px;
+      }
+
+      .send-btn {
+        padding: 10px 20px;
+        font-size: 14px;
+      }
+
+      .voice-controls {
+        padding: 12px;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .mic-btn {
+        padding: 10px 20px;
+        font-size: 14px;
+      }
+
+      .noise-suppression-toggle {
+        font-size: 12px;
+      }
+
+      .toggle-switch {
+        width: 40px;
+        height: 22px;
+      }
+
+      .toggle-switch::after {
+        width: 16px;
+        height: 16px;
+        top: 3px;
+        left: 3px;
+      }
+
+      .toggle-switch.active::after {
+        transform: translateX(18px);
+      }
+    }
+
+    @media (max-width: 480px) {
+      .sidebar {
+        max-height: 35vh;
+        padding: 10px;
+      }
+
+      .logo {
+        font-size: 16px;
+      }
+
+      .user-item {
+        padding: 6px;
+      }
+
+      .user-avatar {
+        width: 30px;
+        height: 30px;
+      }
+
+      .voice-controls {
+        flex-direction: column;
+        align-items: stretch;
+      }
+
+      .mic-btn {
+        width: 100%;
+      }
+
+      .noise-suppression-toggle {
+        width: 100%;
+        justify-content: space-between;
       }
     }
 
@@ -754,17 +912,38 @@
       };
 
       // Отправка ICE кандидатов
+      let candidateCount = 0;
+      let hasRelayCandidate = false;
+      
       pc.onicecandidate = (event) => {
         if (event.candidate) {
-          // Отправляем все кандидаты (включая relay для TURN)
-          console.log(`ICE candidate from ${userId}:`, event.candidate.type);
-          socket.emit('ice-candidate', {
-            candidate: event.candidate,
-            to: userId,
-            roomId: currentRoom
-          });
+          candidateCount++;
+          const candidateType = event.candidate.type;
+          const candidateProtocol = event.candidate.protocol;
+          
+          if (candidateType === 'relay') {
+            hasRelayCandidate = true;
+            console.log(`🎯 TURN relay candidate from ${userId}!`, candidateProtocol);
+          }
+          
+          console.log(`ICE candidate #${candidateCount} from ${userId}:`, candidateType, candidateProtocol);
+          
+          // Отправляем только если соединение не закрыто
+          if (pc.signalingState !== 'closed') {
+            socket.emit('ice-candidate', {
+              candidate: event.candidate,
+              to: userId,
+              roomId: currentRoom
+            });
+          }
         } else {
-          console.log(`All ICE candidates gathered for ${userId}`);
+          console.log(`✅ All ICE candidates gathered for ${userId} (${candidateCount} total)`);
+          if (hasRelayCandidate) {
+            console.log(`✅ TURN relay available for ${userId} - should work through NAT/firewall`);
+          } else {
+            console.warn(`⚠️ No TURN relay candidates for ${userId} - may not work through NAT/firewall`);
+          }
+          console.log(`Signaling state:`, pc.signalingState, 'ICE state:', pc.iceConnectionState);
         }
       };
 
@@ -792,7 +971,24 @@
         
         // Если соединение установлено успешно
         if (state === 'connected' || state === 'completed') {
-          console.log(`✅ Successfully connected to ${userId}`);
+          console.log(`✅ Successfully connected to ${userId}, ICE: ${state}`);
+          // Обновляем статус еще раз для уверенности
+          const statusEl = document.getElementById(`status-${userId}`);
+          if (statusEl) {
+            statusEl.textContent = '✅ Подключено';
+            statusEl.style.color = '#43b581';
+          }
+        }
+        
+        // Если disconnected, пытаемся восстановить
+        if (state === 'disconnected') {
+          console.warn(`ICE disconnected with ${userId}, will attempt reconnect if stays disconnected`);
+          setTimeout(() => {
+            if (peerConnections[userId] && peerConnections[userId].iceConnectionState === 'disconnected') {
+              console.log(`Reconnecting to ${userId} after disconnect...`);
+              establishConnection(userId);
+            }
+          }, 3000);
         }
         
         // Если соединение не удалось, пытаемся переподключиться
@@ -809,7 +1005,23 @@
 
       pc.onconnectionstatechange = () => {
         const state = pc.connectionState;
-        console.log(`Connection state with ${userId}:`, state);
+        const iceState = pc.iceConnectionState;
+        console.log(`Connection state with ${userId}:`, state, 'ICE:', iceState);
+        
+        // Обновляем статус в UI
+        const statusEl = document.getElementById(`status-${userId}`);
+        if (statusEl) {
+          if (state === 'connected' && (iceState === 'connected' || iceState === 'completed')) {
+            statusEl.textContent = '✅ Подключено';
+            statusEl.style.color = '#43b581';
+          } else if (state === 'connecting' || iceState === 'checking') {
+            statusEl.textContent = '🔄 Проверка соединения...';
+            statusEl.style.color = '#8e9297';
+          } else if (state === 'failed' || iceState === 'failed') {
+            statusEl.textContent = '❌ Ошибка соединения';
+            statusEl.style.color = '#ed4245';
+          }
+        }
         
         if (state === 'failed' || state === 'disconnected') {
           if (remoteAudios[userId]) {
@@ -823,9 +1035,15 @@
           console.warn(`Connection failed with ${userId}, attempting to reconnect...`);
           setTimeout(() => {
             if (peerConnections[userId] && peerConnections[userId].connectionState === 'failed') {
+              console.log(`Reconnecting to ${userId}...`);
               establishConnection(userId);
             }
           }, 3000);
+        }
+        
+        // Логируем успешное соединение
+        if (state === 'connected' && (iceState === 'connected' || iceState === 'completed')) {
+          console.log(`✅✅✅ FULLY CONNECTED to ${userId} - audio should work now!`);
         }
       };
       
@@ -841,8 +1059,20 @@
     }
 
     async function establishConnection(userId) {
-      if (peerConnections[userId] && peerConnections[userId].connectionState !== 'closed') {
-        return;
+      // Проверяем существующее соединение
+      if (peerConnections[userId]) {
+        const existingState = peerConnections[userId].signalingState;
+        const existingConnState = peerConnections[userId].connectionState;
+        
+        if (existingState !== 'closed' && existingConnState !== 'closed' && 
+            existingState !== 'failed' && existingConnState !== 'failed') {
+          console.log(`Connection with ${userId} already exists, state:`, existingState, existingConnState);
+          return;
+        } else {
+          console.log(`Closing old connection with ${userId}, state:`, existingState, existingConnState);
+          peerConnections[userId].close();
+          delete peerConnections[userId];
+        }
       }
 
       if (!originalStream) {
@@ -1145,9 +1375,13 @@
       }
 
       // Проверяем, нет ли уже соединения
-      if (peerConnections[from] && peerConnections[from].signalingState !== 'closed') {
-        console.log(`Already have connection with ${from}, closing old one`);
-        peerConnections[from].close();
+      if (peerConnections[from]) {
+        const existingState = peerConnections[from].signalingState;
+        if (existingState !== 'closed' && existingState !== 'have-remote-offer') {
+          console.log(`Already have connection with ${from}, state: ${existingState}, closing old one`);
+          peerConnections[from].close();
+          delete peerConnections[from];
+        }
       }
 
       const pc = await createPeerConnection(from);
@@ -1221,18 +1455,33 @@
 
     socket.on('ice-candidate', async ({ candidate, from }) => {
       const pc = peerConnections[from];
-      if (pc && candidate) {
-        try {
-          console.log(`Adding ICE candidate from ${from}:`, candidate.type);
-          await pc.addIceCandidate(new RTCIceCandidate(candidate));
-        } catch (err) {
-          // Игнорируем ошибки дублирования кандидатов
-          if (err.message && !err.message.includes('duplicate')) {
-            console.error('Error adding ICE candidate:', err);
-          }
-        }
-      } else {
+      if (!pc) {
         console.warn(`No peer connection for ${from} when adding ICE candidate`);
+        return;
+      }
+      
+      if (!candidate) {
+        console.log(`Null ICE candidate from ${from} (gathering complete)`);
+        return;
+      }
+      
+      // Проверяем состояние соединения
+      if (pc.signalingState === 'closed' || pc.connectionState === 'closed') {
+        console.warn(`Cannot add ICE candidate, connection closed for ${from}`);
+        return;
+      }
+      
+      try {
+        console.log(`Adding ICE candidate from ${from}:`, candidate.type || 'unknown');
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch (err) {
+        // Игнорируем ошибки дублирования и закрытых соединений
+        if (err.message && 
+            !err.message.includes('duplicate') && 
+            !err.message.includes('closed') &&
+            !err.message.includes('InvalidStateError')) {
+          console.error('Error adding ICE candidate:', err);
+        }
       }
     });
 
